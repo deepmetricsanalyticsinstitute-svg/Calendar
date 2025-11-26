@@ -96,10 +96,20 @@ const DayDetailModal: React.FC<DayDetailModalProps> = ({
 
   return (
     <div 
-      className="bg-gray-800 p-8 rounded-lg shadow-2xl w-full max-w-md border border-gray-700"
+      className="bg-gray-800 p-8 rounded-lg shadow-2xl w-full max-w-md border border-gray-700 relative" /* Added relative for absolute positioning of close button */
       // Prevent clicks inside the modal from bubbling up to the overlay
       onClick={(e) => e.stopPropagation()} 
     >
+      <button
+        onClick={onClose}
+        className="absolute top-4 right-4 text-gray-400 hover:text-white focus:outline-none focus:ring-2 focus:ring-gray-500 rounded-full p-1"
+        aria-label="Close modal"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+
       <h3 id="day-detail-modal-title" className="text-2xl font-bold text-white mb-6">
         Interactions for <span className="text-indigo-400">{formatDate(selectedDate)}</span>
       </h3>
