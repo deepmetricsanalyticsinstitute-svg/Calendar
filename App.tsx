@@ -1,11 +1,10 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import DateTimeDisplay from './components/DateTimeDisplay';
 import Calendar from './components/Calendar';
 import CountdownDisplay from './components/CountdownDisplay';
 import MotivationalQuote from './components/MotivationalQuote';
-import ReminderForm from './components/ReminderForm';
 import RemindersList from './components/RemindersList';
+import DayDetailModal from './components/DayDetailModal'; // New modal component
 
 interface Reminder {
   id: string;
@@ -14,8 +13,13 @@ interface Reminder {
   isCompleted: boolean;
 }
 
+interface DailyDistances {
+  [date: string]: number; // YYYY-MM-DD: distance_in_km
+}
+
 const LOCAL_STORAGE_KEY_REMINDERS = 'calendarReminders';
 const LOCAL_STORAGE_KEY_NOTIFIED_REMINDERS = 'notifiedReminderIds';
+const LOCAL_STORAGE_KEY_DAILY_DISTANCES = 'dailyTravelDistances'; // New key for distances
 
 const App: React.FC = () => {
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
@@ -29,8 +33,19 @@ const App: React.FC = () => {
       return [];
     }
   });
-  const [isReminderFormOpen, setIsReminderFormOpen] = useState(false);
-  const [selectedDateForReminder, setSelectedDateForReminder] = useState<Date | null>(null);
+  const [dailyDistances, setDailyDistances] = useState<DailyDistances>(() => {
+    // Initialize dailyDistances from localStorage
+    try {
+      const storedDistances = localStorage.getItem(LOCAL_STORAGE_KEY_DAILY_DISTANCES);
+      return storedDistances ? JSON.parse(storedDistances) : {};
+    } catch (error) {
+      console.error("Failed to parse daily distances from localStorage", error);
+      return {};
+    }
+  });
+
+  const [isDayDetailModalOpen, setIsDayDetailModalOpen] = useState(false); // Renamed state
+  const [selectedDateForInteraction, setSelectedDateForInteraction] = useState<Date | null>(null); // Renamed state
   const [activeNotification, setActiveNotification] = useState<Reminder | null>(null);
   const [notifiedReminderIds, setNotifiedReminderIds] = useState<Set<string>>(() => {
     // Initialize notifiedReminderIds from localStorage
@@ -42,6 +57,8 @@ const App: React.FC = () => {
       return new Set();
     }
   });
+
+  const modalRef = useRef<HTMLDivElement>(null); // Ref for the modal overlay
 
   // Effect to continuously update current date
   useEffect(() => {
@@ -60,6 +77,15 @@ const App: React.FC = () => {
       console.error("Failed to save reminders to localStorage", error);
     }
   }, [reminders]);
+
+  // Effect to persist dailyDistances to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEY_DAILY_DISTANCES, JSON.stringify(dailyDistances));
+    } catch (error) {
+      console.error("Failed to save daily distances to localStorage", error);
+    }
+  }, [dailyDistances]);
 
   // Effect to persist notifiedReminderIds to localStorage whenever they change
   useEffect(() => {
@@ -106,6 +132,25 @@ const App: React.FC = () => {
     }
   }, [currentDate, reminders, notifiedReminderIds, activeNotification]);
 
+  // Effect to handle Escape key press for modal closing
+  useEffect(() => {
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsDayDetailModalOpen(false);
+      }
+    };
+
+    if (isDayDetailModalOpen) {
+      document.addEventListener('keydown', handleEscapeKey);
+    } else {
+      document.removeEventListener('keydown', handleEscapeKey);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscapeKey);
+    };
+  }, [isDayDetailModalOpen]);
+
   const addReminder = (date: Date, text: string) => {
     const newReminder: Reminder = {
       id: Date.now().toString(),
@@ -114,7 +159,7 @@ const App: React.FC = () => {
       isCompleted: false,
     };
     setReminders((prev) => [...prev, newReminder].sort((a, b) => a.date.localeCompare(b.date)));
-    setIsReminderFormOpen(false); // Close form after adding
+    // setIsReminderFormOpen(false); // Close form after adding - this will be handled by the modal
   };
 
   const markReminderComplete = (id: string) => {
@@ -135,13 +180,36 @@ const App: React.FC = () => {
     });
   };
 
+  const addOrUpdateDailyDistance = (date: Date, distance: number) => {
+    const dateString = date.toISOString().split('T')[0];
+    setDailyDistances((prev) => ({
+      ...prev,
+      [dateString]: distance,
+    }));
+  };
+
+  const deleteDailyDistance = (date: Date) => {
+    const dateString = date.toISOString().split('T')[0];
+    setDailyDistances((prev) => {
+      const newDistances = { ...prev };
+      delete newDistances[dateString];
+      return newDistances;
+    });
+  };
+
   const handleDayClick = (date: Date) => {
-    setSelectedDateForReminder(date);
-    setIsReminderFormOpen(true);
+    setSelectedDateForInteraction(date);
+    setIsDayDetailModalOpen(true);
   };
 
   const handleDismissNotification = () => {
     setActiveNotification(null);
+  };
+
+  const handleOverlayClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (modalRef.current && event.target === modalRef.current) {
+      setIsDayDetailModalOpen(false);
+    }
   };
 
   return (
@@ -181,7 +249,12 @@ const App: React.FC = () => {
         </section>
 
         <section className="col-span-1">
-          <Calendar currentDate={currentDate} onDayClick={handleDayClick} reminders={reminders} />
+          <Calendar 
+            currentDate={currentDate} 
+            onDayClick={handleDayClick} 
+            reminders={reminders} 
+            dailyDistances={dailyDistances} // Pass dailyDistances to Calendar
+          />
         </section>
 
         <section className="col-span-1 flex flex-col space-y-8">
@@ -194,12 +267,22 @@ const App: React.FC = () => {
         </section>
       </main>
 
-      {isReminderFormOpen && selectedDateForReminder && (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
-          <ReminderForm
-            selectedDate={selectedDateForReminder}
+      {isDayDetailModalOpen && selectedDateForInteraction && (
+        <div 
+          ref={modalRef}
+          className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4"
+          onClick={handleOverlayClick}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="day-detail-modal-title"
+        >
+          <DayDetailModal
+            selectedDate={selectedDateForInteraction}
             onAddReminder={addReminder}
-            onClose={() => setIsReminderFormOpen(false)}
+            dailyDistance={dailyDistances[selectedDateForInteraction.toISOString().split('T')[0]] || 0}
+            onAddOrUpdateDailyDistance={addOrUpdateDailyDistance}
+            onDeleteDailyDistance={deleteDailyDistance}
+            onClose={() => setIsDayDetailModalOpen(false)}
           />
         </div>
       )}
